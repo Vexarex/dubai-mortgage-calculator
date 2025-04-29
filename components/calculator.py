@@ -12,19 +12,19 @@ from config import DEFAULTS
 def show_mortgage_calculator():
     """Display the mortgage calculator tab"""
     st.header("📊 Mortgage Calculator")
-    
-    # Create a sidebar for inputs
+
+    # --- Sidebar for inputs ---
     with st.sidebar:
         st.header("📌 Input Details")
-        
+
         # Property details
-        st.subheader("Property Details")
+        st.subheader("🏠 Property Details")
         property_price = st.number_input(
             "Property Price (AED)", 
             value=DEFAULTS["property_price"], 
             step=10000,
             min_value=100000,
-            key="property_price"  # Adding keys to enable session_state
+            key="property_price"
         )
         built_up_area = st.number_input(
             "Built-up Area (sq ft)", 
@@ -40,9 +40,9 @@ def show_mortgage_calculator():
             min_value=0.0,
             key="service_charge_rate"
         )
-        
+
         # Mortgage details
-        st.subheader("Mortgage Details")
+        st.subheader("💰 Mortgage Details")
         down_payment_pct = st.slider(
             "Down Payment (%)", 
             0, 100, 
@@ -51,7 +51,7 @@ def show_mortgage_calculator():
         )
         mortgage_years = st.slider(
             "Mortgage Term (years)", 
-            5, 30, 
+            5, 25, 
             DEFAULTS["mortgage_years"],
             key="mortgage_years"
         )
@@ -68,6 +68,13 @@ def show_mortgage_calculator():
             min_value=0.0,
             key="fixed_rate"
         )
+        bank_margin = st.number_input(
+            "Bank Margin over EIBOR (%)",
+            value=DEFAULTS.get("bank_margin", 1.5),
+            step=0.1,
+            min_value=0.0,
+            key="bank_margin"
+        )
         eibor_rate = st.number_input(
             "Current EIBOR (%)", 
             value=DEFAULTS["eibor_rate"], 
@@ -75,9 +82,23 @@ def show_mortgage_calculator():
             min_value=0.0,
             key="eibor_rate"
         )
-        
+
         # Fees
-        st.subheader("Fees & Insurance")
+        st.subheader("🧾 Fees & Insurance")
+        dld_fee_pct = st.number_input(
+            "Dubai Land Department Fee (%)",
+            value=DEFAULTS.get("dld_fee_pct", 4.0),
+            step=0.1,
+            min_value=0.0,
+            key="dld_fee_pct"
+        )
+        agent_fee_pct = st.number_input(
+            "Agent Fee (%)",
+            value=DEFAULTS.get("agent_fee_pct", 2.0),
+            step=0.1,
+            min_value=0.0,
+            key="agent_fee_pct"
+        )
         trustee_fee = st.number_input(
             "Trustee Fee (AED)", 
             value=DEFAULTS["trustee_fee"],
@@ -110,110 +131,142 @@ def show_mortgage_calculator():
             DEFAULTS["life_insurance_pct"],
             key="life_insurance_pct"
         )
-        arrangement_fee_pct = st.slider(
-            "Mortgage Arrangement Fee (%)", 
+        processing_fee_pct = st.slider(
+            "Mortgage Processing Fee (%)", 
             0.0, 2.0, 
-            DEFAULTS["arrangement_fee_pct"],
-            key="arrangement_fee_pct"
+            DEFAULTS["processing_fee_pct"],
+            key="processing_fee_pct"
         )
 
-    # Calculate mortgage details
+    # --- Calculations ---
     down_payment = (down_payment_pct / 100) * property_price
     loan_amount = property_price - down_payment
-    floating_rate = eibor_rate + 1.5
-    
-    # Calculate costs
+    loan_pct = 100 - down_payment_pct
+    floating_rate = eibor_rate + bank_margin
+
     mortgage_costs = calculate_mortgage_costs(
         property_price, down_payment_pct, loan_amount,
         mortgage_years, fixed_years, fixed_rate, floating_rate,
-        built_up_area, service_charge_rate
+        built_up_area, service_charge_rate,
+        home_insurance_pct, life_insurance_pct
     )
-    
+
     upfront_cost = calculate_upfront_costs(
         property_price, loan_amount, down_payment,
         trustee_fee, valuation_fee, dewa_fee, snagging_fee,
-        arrangement_fee_pct, home_insurance_pct, life_insurance_pct
+        processing_fee_pct, dld_fee_pct, agent_fee_pct
     )
 
-    # Display mortgage summary
+    # --- Compute grand total ---
+    grand_total = mortgage_costs['total_payment'] + upfront_cost
+
+    # --- Summary ---
+    summary_rows = [
+        ("Property Price", f"AED {property_price:,.2f}", "Total property value"),
+        ("Loan Amount (Principal)", f"AED {loan_amount:,.2f}", f"Loan principal after {loan_pct}% financing"),
+        ("Down Payment", f"AED {down_payment:,.2f}", f"Initial {down_payment_pct}% payment"),
+        ("Upfront Costs", f"AED {upfront_cost:,.2f}", "Down Payment + Fees + Registration costs"),
+        ("Monthly Payment (Fixed)", f"AED {mortgage_costs['monthly_fixed']:,.2f}", f"Monthly during fixed rate period ({fixed_years} years)"),
+        ("Monthly Payment (Floating)", f"AED {mortgage_costs['monthly_floating']:,.2f}", f"Estimated floating payment (EIBOR {eibor_rate}% + {bank_margin}%)"),
+        ("Monthly Service Charge", f"AED {mortgage_costs['annual_service_charge'] / 12:,.2f}", "Service charge paid monthly"),
+        # ("Total Principal", f"AED {loan_amount:,.2f}", "Loan amount to be repaid"),
+        ("Total Interest", f"AED {mortgage_costs['total_interest']:,.2f}", "Full interest paid over life of loan"),
+        ("Total Service Charge", f"AED {mortgage_costs['total_service_charge']:,.2f}", "Full period service charges"),
+        ("Total Home Insurance", f"AED {mortgage_costs['total_home_insurance']:,.2f}", "Home insurance over mortgage period"),
+        ("Total Life Insurance", f"AED {mortgage_costs['total_life_insurance']:,.2f}", "Decreasing life insurance over mortgage period"),
+        ("Total Mortgage Cost", f"AED {mortgage_costs['total_payment']:,.2f}", "Principal + Interest + Charges + Insurance"),
+        ("Grand Total (All Costs)", f"AED {grand_total:,.2f}", "Total cost including upfront costs")
+    ]
+
+    # --- HTML Table ---
+    info_icon = "<span style='cursor:help; color:#888;' title='{tooltip}'> ℹ️</span>"
+    table_html = "<table style='width:100%; border-collapse:collapse;'>"
+    table_html += "<thead><tr><th style='text-align:left;'>Description</th><th style='text-align:right;'>Amount (AED)</th></tr></thead><tbody>"
+
+    for desc, amount, tooltip in summary_rows:
+        icon = info_icon.format(tooltip=tooltip)
+        table_html += f"<tr><td style='padding:8px;'>{desc} {icon}</td><td style='padding:8px; text-align:right;'>{amount}</td></tr>"
+
+    table_html += "</tbody></table>"
+
+    # --- Layout ---
     st.subheader("📋 Mortgage Summary")
-    
     col1, col2 = st.columns(2)
-    
     with col1:
-        st.write(f"**Loan Amount:** AED {loan_amount:,.2f}")
-        st.write(f"**Down Payment:** AED {down_payment:,.2f}")
-        st.write(f"**Upfront Cost (Fees & Insurance):** AED {upfront_cost:,.2f}")
-        st.write(f"**Monthly Payment (Fixed):** AED {mortgage_costs['monthly_fixed']:,.2f}")
-        st.write(f"**Monthly Payment (Floating):** AED {mortgage_costs['monthly_floating']:,.2f}")
+        st.markdown(table_html, unsafe_allow_html=True)
 
     with col2:
-        st.write(f"**Annual Service Charge:** AED {mortgage_costs['annual_service_charge']:,.2f}")
-        st.write(f"**Total Service Charge:** AED {mortgage_costs['total_service_charge']:,.2f}")
-        st.write(f"**Total Interest:** AED {mortgage_costs['total_interest']:,.2f}")
-        st.write(f"**Total Paid:** AED {mortgage_costs['total_payment']:,.2f}")
+        # Improved pie chart with all costs
+        pie_data = pd.DataFrame({
+            "Component": ["Principal", "Interest", "Service Charges", "Home Insurance", "Life Insurance", "Upfront Costs"],
+            "Amount": [
+                loan_amount, 
+                mortgage_costs["total_interest"], 
+                mortgage_costs["total_service_charge"],
+                mortgage_costs["total_home_insurance"],
+                mortgage_costs["total_life_insurance"],
+                upfront_cost
+            ]
+        })
+        fig = px.pie(
+            pie_data, 
+            names="Component", 
+            values="Amount",
+            title="Total Cost Breakdown",
+            hole=0.4
+        )
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Generate amortization schedule
+    # --- Annual Breakdown ---
+    st.subheader("📊 Annual Breakdown")
     yearly_amort, monthly_amort = generate_amortization(
         loan_amount, fixed_years, mortgage_years, fixed_rate, floating_rate
     )
+
     yearly_amort["Cumulative Principal"] = yearly_amort["Principal"].cumsum()
     yearly_amort["Cumulative Interest"] = yearly_amort["Interest"].cumsum()
 
-    # Display charts
-    st.subheader("📊 Annual Breakdown")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Bar chart showing principal vs interest paid each year
+    col3, col4 = st.columns(2)
+
+    with col3:
         principal_interest_fig = px.bar(
             yearly_amort,
             x="Year",
             y=["Principal", "Interest"],
             title="Principal vs Interest Paid Each Year",
-            labels={"value": "Amount (AED)", "variable": "Payment Type"}
+            labels={"value": "Amount (AED)", "variable": "Type"}
         )
         st.plotly_chart(principal_interest_fig, use_container_width=True)
-    
-    with col2:
-        # Line chart showing cumulative payments over time
+
+    with col4:
         cumulative_fig = px.line(
             yearly_amort,
             x="Year",
             y=["Cumulative Principal", "Cumulative Interest"],
             title="Cumulative Payments Over Time",
-            labels={"value": "Amount (AED)", "variable": "Payment Type"}
+            labels={"value": "Cumulative Amount (AED)", "variable": "Type"}
         )
         st.plotly_chart(cumulative_fig, use_container_width=True)
 
-    # Show amortization table
-    show_amortization = st.checkbox("Show full amortization schedule")
-    if show_amortization:
-        st.subheader("📑 Amortization Schedule")
-        # Add year-month column for better readability
-        monthly_amort["Period"] = monthly_amort["Year"].astype(str) + "-" + monthly_amort["Month"].astype(str).str.zfill(2)
-        
-        # Format the monetary columns
-        for col in ["Payment", "Principal", "Interest", "Remaining Balance"]:
-            monthly_amort[col] = monthly_amort[col].map("AED {:,.2f}".format)
-            
-        st.dataframe(
-            monthly_amort[["Period", "Payment", "Principal", "Interest", "Remaining Balance"]],
-            use_container_width=True
-        )
-
-    # Pie chart
-    st.subheader("🥧 Mortgage Composition")
-    pie_data = pd.DataFrame({
-        "Component": ["Principal", "Interest", "Service Charges"],
-        "Amount": [loan_amount, mortgage_costs["total_interest"], mortgage_costs["total_service_charge"]]
-    })
-    fig = px.pie(
-        pie_data, 
-        names="Component", 
-        values="Amount", 
-        title="Total Mortgage Repayment Composition",
-        color_discrete_sequence=px.colors.sequential.Bluyl
+    # --- Amortization Table ---
+    st.subheader("📑 Full Amortization Schedule")
+    monthly_amort["Period"] = monthly_amort["Year"].astype(str) + "-" + monthly_amort["Month"].astype(str).str.zfill(2)
+    
+    # Add insurance columns to the display
+    monthly_amort["Home Insurance"] = monthly_amort.apply(
+        lambda row: property_price * (home_insurance_pct / 100) / 12, axis=1
     )
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    st.plotly_chart(fig, use_container_width=True)
+    monthly_amort["Life Insurance"] = monthly_amort.apply(
+        lambda row: row["Remaining Balance"] * (life_insurance_pct / 100) / 12, axis=1
+    )
+    monthly_amort["Service Charge"] = mortgage_costs["annual_service_charge"] / 12
+    
+    # Format for display
+    for col in ["Payment", "Principal", "Interest", "Remaining Balance", "Home Insurance", "Life Insurance", "Service Charge"]:
+        monthly_amort[col] = monthly_amort[col].map(lambda x: f"AED {x:,.2f}")
+
+    st.dataframe(
+        monthly_amort[["Period", "Payment", "Principal", "Interest", "Remaining Balance", "Home Insurance", "Life Insurance", "Service Charge"]],
+        use_container_width=True
+    )
