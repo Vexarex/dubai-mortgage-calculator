@@ -12,8 +12,6 @@ from config import DEFAULTS
 
 def show_buy_vs_rent():
     """Display the buy vs rent comparison tab"""
-    st.header("🏡 Buy vs Rent Comparison")
-    
     # Retrieve property and mortgage values from session state if available
     property_price = st.session_state.get('property_price', DEFAULTS["property_price"])
     down_payment_pct = st.session_state.get('down_payment_pct', DEFAULTS["down_payment_pct"])
@@ -23,10 +21,19 @@ def show_buy_vs_rent():
     eibor_rate = st.session_state.get('eibor_rate', DEFAULTS["eibor_rate"])
     built_up_area = st.session_state.get('built_up_area', DEFAULTS["built_up_area"])
     service_charge_rate = st.session_state.get('service_charge_rate', DEFAULTS["service_charge_rate"])
+    bank_margin = st.session_state.get('bank_margin', DEFAULTS["bank_margin"])
+    life_insurance_pct = st.session_state.get('life_insurance_pct', DEFAULTS["life_insurance_pct"])
+    home_insurance_pct = st.session_state.get('home_insurance_pct', DEFAULTS["home_insurance_pct"])
     
-    # Toggle advanced mode
-    show_advanced = st.sidebar.checkbox("Show Advanced Options", value=False)
-    
+    # Check for DLD and agent fee parameters from session state
+    dld_fee_pct = st.session_state.get('dld_fee_pct', DEFAULTS.get("dld_fee_pct", 4.0))
+    agent_fee_pct = st.session_state.get('agent_fee_pct', DEFAULTS.get("agent_fee_pct", 2.0))
+    processing_fee_pct = st.session_state.get('processing_fee_pct', DEFAULTS["processing_fee_pct"])
+    trustee_fee = st.session_state.get('trustee_fee', DEFAULTS["trustee_fee"])
+    valuation_fee = st.session_state.get('valuation_fee', DEFAULTS["valuation_fee"])
+    dewa_fee = st.session_state.get('dewa_fee', DEFAULTS["dewa_fee"])
+    snagging_fee = st.session_state.get('snagging_fee', DEFAULTS["snagging_fee"])
+
     # Additional inputs for this tab
     st.subheader("📥 Rent vs Buy Parameters")
     
@@ -38,90 +45,54 @@ def show_buy_vs_rent():
             value=DEFAULTS["monthly_rent"],
             min_value=0
         )
-        rent_growth = st.slider(
+        rent_growth = st.number_input(
             "Expected Annual Rent Increase (%)", 
             0.0, 15.0, 
             DEFAULTS["rent_growth"]
         )
     
     with col2:
-        compare_years = st.slider(
+        compare_years = st.number_input(
             "Years to Compare", 
-            10, 50, 
+            5, 25, 
             DEFAULTS["compare_years"]
         )
-        appreciation_rate = st.slider(
+        appreciation_rate = st.number_input(
             "Expected Property Appreciation Rate (%)", 
             0.0, 15.0, 
             DEFAULTS["appreciation_rate"]
         )
     
-    # Advanced options
-    if show_advanced:
-        st.subheader("🔍 Advanced Assumptions")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            # Investment return rate (for opportunity cost of down payment)
-            investment_return = st.slider(
-                "Alternative Investment Return (%)", 
-                0.0, 20.0, 
-                5.0
-            )
-            
-        with col2:
-            # Property tax/maintenance not covered by service charge
-            additional_ownership_costs = st.slider(
-                "Additional Annual Ownership Costs (% of property value)", 
-                0.0, 2.0, 
-                0.5
-            )
-            
-        with col3:
-            # Tax advantages (in some countries mortgage interest is tax deductible)
-            tax_advantage = st.slider(
-                "Tax Advantage (% of mortgage interest)", 
-                0.0, 100.0, 
-                0.0
-            )
-            
-        # Option to include opportunity cost of down payment
-        include_opportunity_cost = st.checkbox("Include Opportunity Cost of Down Payment", value=False)
-    else:
-        # Set default values
-        investment_return = 5.0
-        additional_ownership_costs = 0.5
-        tax_advantage = 0.0
-        include_opportunity_cost = False
+    # Set default value for tax advantage (keep this if it's used elsewhere)
+    tax_advantage = 0.0
 
     # Calculations for buy scenario
     down_payment = (down_payment_pct / 100) * property_price
     loan_amount = property_price - down_payment
-    floating_rate = eibor_rate + 1.5
+    floating_rate = eibor_rate + bank_margin
     
-    # Calculate ongoing insurance costs
-    annual_home_insurance = (DEFAULTS["home_insurance_pct"] / 100) * property_price
-    annual_life_insurance = (DEFAULTS["life_insurance_pct"] / 100) * loan_amount
-    
-    # Calculate mortgage details
-    monthly_fixed_payment = monthly_payment(loan_amount, fixed_rate, mortgage_years)
-    monthly_floating_payment = monthly_payment(loan_amount, floating_rate, mortgage_years - fixed_years)
-    
+    # Calculate mortgage details and costs using the mortgage_math utilities
     mortgage_costs = calculate_mortgage_costs(
         property_price, down_payment_pct, loan_amount,
         mortgage_years, fixed_years, fixed_rate, floating_rate,
-        built_up_area, service_charge_rate
+        built_up_area, service_charge_rate,
+        home_insurance_pct, life_insurance_pct  
     )
     
     upfront_cost = calculate_upfront_costs(
         property_price, loan_amount, down_payment,
-        DEFAULTS["trustee_fee"], DEFAULTS["valuation_fee"], 
-        DEFAULTS["dewa_fee"], DEFAULTS["snagging_fee"],
-        DEFAULTS["arrangement_fee_pct"], 
-        DEFAULTS["home_insurance_pct"], 
-        DEFAULTS["life_insurance_pct"]
+        trustee_fee, valuation_fee, 
+        dewa_fee, snagging_fee,
+        processing_fee_pct, dld_fee_pct, agent_fee_pct
     )
+    
+    # Get monthly payment information
+    monthly_fixed_payment = monthly_payment(loan_amount, fixed_rate, mortgage_years)
+    monthly_floating_payment = monthly_payment(loan_amount, floating_rate, mortgage_years - fixed_years)
+    
+    # Calculate total amount actually spent on the property 
+    # (upfront costs + mortgage payments + insurance + service charges)
+    total_buying_cost = mortgage_costs["total_payment"] + upfront_cost
 
     # Calculate rent costs over time
     rent_total = 0
@@ -129,16 +100,20 @@ def show_buy_vs_rent():
     rent_over_time = []
     buy_costs_over_time = []
     buy_equity_over_time = []
-    opportunity_cost_over_time = []
     net_position_over_time = []
     
-    # Initial buy cost (down payment + fees, excluding the down payment itself 
-    # which is part of equity calculation)
-    buy_total = upfront_cost - down_payment  # Remove down payment from costs since it's an asset
-    opportunity_cost = 0  # Track opportunity cost of down payment
+    # Initial values
     property_value = property_price
     remaining_loan = loan_amount
-    equity = property_value - remaining_loan  # Initial equity is just the down payment
+    equity = property_value - remaining_loan  # Initial equity is the down payment
+    
+    # Calculate annual home insurance based on property value (fixed for simplicity)
+    annual_home_insurance = (home_insurance_pct / 100) * property_price
+    
+    # Tracking variables for cumulative costs
+    cumulative_mortgage_payment = 0
+    cumulative_service_charge = 0
+    cumulative_insurance = 0
     
     for year in range(1, compare_years + 1):
         # Calculate property value with appreciation (compound annually)
@@ -178,52 +153,51 @@ def show_buy_vs_rent():
             
             # Add mortgage payment to annual cost
             annual_buy_cost += annual_mortgage
+            cumulative_mortgage_payment += annual_mortgage
         else:
             # Mortgage is paid off
             remaining_loan = 0
         
         # Add service charge
         annual_buy_cost += mortgage_costs["annual_service_charge"]
+        cumulative_service_charge += mortgage_costs["annual_service_charge"]
         
         # Add insurance costs
-        annual_buy_cost += annual_home_insurance
-        if remaining_loan > 0:
-            annual_buy_cost += annual_life_insurance
-            
-        # Add additional ownership costs
-        annual_buy_cost += property_value * (additional_ownership_costs / 100)
+        annual_buy_cost += annual_home_insurance  # Home insurance
+        cumulative_insurance += annual_home_insurance
         
-        # Calculate opportunity cost of down payment
-        if include_opportunity_cost:
-            # Simple compound interest on down payment
-            opportunity_cost = down_payment * ((1 + investment_return / 100) ** year - 1)
-        else:
-            opportunity_cost = 0
+        # Add life insurance (based on remaining loan)
+        if remaining_loan > 0:
+            annual_life_insurance = (life_insurance_pct / 100) * remaining_loan
+            annual_buy_cost += annual_life_insurance
+            cumulative_insurance += annual_life_insurance
             
-        # Update cumulative buy cost (excluding down payment)
-        buy_total += annual_buy_cost
-        buy_costs_over_time.append((year, buy_total))
-        opportunity_cost_over_time.append((year, opportunity_cost))
+        # Update cumulative buy cost (including upfront costs for total costs over time)
+        total_annual_cost = annual_buy_cost
+        if year == 1:
+            total_annual_cost += upfront_cost
+            
+        buy_costs_over_time.append((year, total_annual_cost if year == 1 else 
+                                   buy_costs_over_time[-1][1] + annual_buy_cost))
         
         # Calculate equity (property value minus remaining loan)
         equity = property_value - remaining_loan
         buy_equity_over_time.append((year, equity))
         
-        # Calculate net position (equity minus costs minus opportunity cost)
-        net_position = equity - buy_total - opportunity_cost + down_payment  # Add back down payment
+        # Calculate net position (equity minus costs)
+        # We're including ALL costs here, including down payment
+        net_position = equity - buy_costs_over_time[-1][1]
         net_position_over_time.append((year, net_position))
 
     # Create dataframes for plotting
     rent_df = pd.DataFrame(rent_over_time, columns=["Year", "Cumulative Rent"])
     buy_cost_df = pd.DataFrame(buy_costs_over_time, columns=["Year", "Cumulative Buy Cost"])
     buy_equity_df = pd.DataFrame(buy_equity_over_time, columns=["Year", "Property Equity"])
-    opportunity_cost_df = pd.DataFrame(opportunity_cost_over_time, columns=["Year", "Opportunity Cost"])
     net_position_df = pd.DataFrame(net_position_over_time, columns=["Year", "Net Position"])
     
     # Merge dataframes for comparison chart
     comparison_df = pd.merge(rent_df, buy_cost_df, on="Year")
     comparison_df = pd.merge(comparison_df, buy_equity_df, on="Year")
-    comparison_df = pd.merge(comparison_df, opportunity_cost_df, on="Year")
     comparison_df = pd.merge(comparison_df, net_position_df, on="Year")
     
     # Calculate buy vs rent advantage
@@ -255,60 +229,67 @@ def show_buy_vs_rent():
             current_rent *= (1 + rent_growth / 100)
             
             # Simple check (not accounting for ongoing costs which are small after mortgage payoff)
-            if extended_property_value - buy_total > extended_rent_total:
+            if extended_property_value - buy_cost_df.iloc[-1]["Cumulative Buy Cost"] > extended_rent_total:
                 break_even_year = extended_year
                 break
 
-    # Final position
+    # Final position values
     final_rent_cost = rent_df.iloc[-1]["Cumulative Rent"]
     final_buy_cost = buy_cost_df.iloc[-1]["Cumulative Buy Cost"]
     final_property_value = buy_equity_df.iloc[-1]["Property Equity"]
-    final_opportunity_cost = opportunity_cost_df.iloc[-1]["Opportunity Cost"]
-    net_worth_buying = final_property_value - final_buy_cost - final_opportunity_cost
+    final_net_position = net_position_df.iloc[-1]["Net Position"]
+    true_financial_outcome = final_property_value - total_buying_cost 
 
-    # -------------------------------------------------------------
-    # Side-by-side summary of rent vs buy at the top
-    # -------------------------------------------------------------
-    st.subheader("💹 Quick Comparison Summary")
-    
+    # ----------------------------------------
+    # 📊 High-Level Summary: Rent vs Buy
+    # ----------------------------------------
+    st.subheader("📊 : Renting vs Buying")
+
     col1, col2 = st.columns(2)
-    
-    # Style based on which option is better
-    # buy_better = net_worth_buying > final_rent_cost
-    buy_better = net_worth_buying + final_rent_cost > 0
-    
+
+    # Determine if buying is financially better
+    buy_better = final_net_position > -final_rent_cost
+
+    # 🏠 Buying Summary
     with col1:
-        st.markdown("### 🏠 Buying")
-        st.markdown(f"**Total Outlay:** AED {(upfront_cost + final_buy_cost):,.2f}")
-        st.markdown(f"**Property Value:** AED {final_property_value:,.2f}")
+        st.markdown("### 🏠 Buying a Home")
+        st.markdown(f"**Total Spent (including fees):** AED {total_buying_cost:,.2f}")
+        st.markdown(f"**Estimated Property Value:** AED {final_property_value:,.2f}")
         
-        if buy_better:
-            st.markdown(f"**Net Position:** 🟢 **AED {net_worth_buying:,.2f}**")
+        # Calculate the actual financial gain/loss
+        financial_outcome = final_net_position
+        
+        if financial_outcome > 0:
+            st.markdown(f"**Final Financial Outcome:** 🟢 **AED {true_financial_outcome:,.2f} gain**")
         else:
-            st.markdown(f"**Net Position:** AED {net_worth_buying:,.2f}")
-    
+            st.markdown(f"**Final Financial Outcome:** 🔴 AED {abs(true_financial_outcome):,.2f} loss")
+
+    # 🏢 Renting Summary
     with col2:
-        st.markdown("### 🏢 Renting")
+        st.markdown("### 🏢 Renting a Home")
         st.markdown(f"**Total Rent Paid:** AED {final_rent_cost:,.2f}")
-        st.markdown("**Property Value:** AED 0")
+        st.markdown(f"**Assets Owned:** AED 0.00")
         
         if not buy_better:
-            st.markdown(f"**Net Position:** 🟢 **AED -{final_rent_cost:,.2f}**")
+    # If renting is financially better overall
+            rent_advantage = abs(final_net_position) - final_rent_cost
+            st.markdown(f"**Final Financial Outcome:** 🟢 **AED {rent_advantage:,.2f} saved compared to buying**")
         else:
-            st.markdown(f"**Net Position:** AED -{final_rent_cost:,.2f}")
-    
+            # Renting always results in money spent with no asset
+            st.markdown(f"**Final Financial Outcome:** 🔴 AED {final_rent_cost:,.2f} spent with no asset acquired")
+
     # Show the financial advantage with highlighting
     st.markdown("---")
     if buy_better:
-        advantage_amount = net_worth_buying + final_rent_cost
+        advantage_amount = final_rent_cost - abs(true_financial_outcome)
         st.success(f"### 💰 You'll be **AED {advantage_amount:,.2f}** better off by BUYING after {compare_years} years")
         
-        if break_even_year:
+        if break_even_year and break_even_year <= compare_years:
             st.info(f"💡 You'll break even at year {break_even_year} (when buying becomes better than renting)")
         else:
-            st.warning(f"💡 You'll break even after the comparison period (estimated around year {break_even_year})")
+            st.warning(f"💡 You'll break even after the comparison period (not within {compare_years} years)")
     else:
-        advantage_amount = final_rent_cost - net_worth_buying
+        advantage_amount = final_rent_cost - abs(true_financial_outcome)
         st.error(f"### 💰 You'll be **AED {advantage_amount:,.2f}** better off by RENTING after {compare_years} years")
         
         if break_even_year:
@@ -326,7 +307,7 @@ def show_buy_vs_rent():
     
     chart_tabs = st.tabs(["Total Position", "Buy vs Rent Advantage", "Detailed Breakdown"])
     
-    with chart_tabs[0]:
+    with chart_tabs[1]:
         # Create a more beautiful chart with Plotly
         fig = go.Figure()
         
@@ -387,7 +368,7 @@ def show_buy_vs_rent():
         
         st.plotly_chart(fig, use_container_width=True)
     
-    with chart_tabs[1]:
+    with chart_tabs[2]:
         # Buy vs Rent Advantage chart
         advantage_fig = go.Figure()
         
@@ -417,7 +398,7 @@ def show_buy_vs_rent():
         
         st.plotly_chart(advantage_fig, use_container_width=True)
     
-    with chart_tabs[2]:
+    with chart_tabs[0]:
         # Detailed breakdown of all components
         detail_fig = go.Figure()
         
@@ -447,17 +428,7 @@ def show_buy_vs_rent():
             line=dict(color="orange", width=2),
             hovertemplate="Year %{x}: AED %{y:,.2f}<extra>Rent Paid</extra>"
         ))
-        
-        # Opportunity Cost (if included)
-        if include_opportunity_cost:
-            detail_fig.add_trace(go.Scatter(
-                x=comparison_df["Year"],
-                y=-comparison_df["Opportunity Cost"],
-                name="Opportunity Cost",
-                line=dict(color="purple", width=2, dash="dash"),
-                hovertemplate="Year %{x}: AED %{y:,.2f}<extra>Opportunity Cost</extra>"
-            ))
-        
+
         # Add a horizontal line at zero
         detail_fig.add_hline(y=0, line_dash="dash", line_color="gray")
         
@@ -474,104 +445,10 @@ def show_buy_vs_rent():
         
         st.plotly_chart(detail_fig, use_container_width=True)
 
-    # Financial breakdown
-    st.subheader("💸 Detailed Financial Breakdown")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### 🏠 Buying Details")
-        st.write(f"**Upfront Costs:** AED {upfront_cost:,.2f}")
-        st.write(f"**Total Mortgage & Expenses:** AED {final_buy_cost:,.2f}")
-        if include_opportunity_cost:
-            st.write(f"**Opportunity Cost of Down Payment:** AED {final_opportunity_cost:,.2f}")
-        st.write(f"**Final Property Value:** AED {final_property_value:,.2f}")
-        st.write(f"**Net Financial Position:** AED {net_worth_buying:,.2f}")
-        
-    with col2:
-        st.markdown("### 🏢 Renting Details")
-        st.write(f"**Starting Monthly Rent:** AED {monthly_rent:,.2f}")
-        st.write(f"**Final Monthly Rent:** AED {monthly_rent * ((1 + rent_growth / 100) ** (compare_years - 1)):,.2f}")
-        st.write(f"**Total Rent Paid:** AED {final_rent_cost:,.2f}")
-        st.write(f"**Assets Acquired:** AED 0")
-        st.write(f"**Net Financial Position:** AED -{final_rent_cost:,.2f}")
-    
-    # Sensitivity analysis
-    st.subheader("📏 What Could Change This Outcome?")
-    
-    # Create sensitivity analysis for key parameters
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Sensitivity to appreciation rate
-        appreciation_sensitivity = []
-        test_rates = [max(1.0, appreciation_rate - 3), appreciation_rate, appreciation_rate + 3]
-        
-        for test_rate in test_rates:
-            test_property_value = property_price * ((1 + test_rate / 100) ** compare_years)
-            test_net_worth = test_property_value - final_buy_cost - final_opportunity_cost
-            test_advantage = test_net_worth + final_rent_cost
-            
-            appreciation_sensitivity.append({
-                "Rate": f"{test_rate:.1f}%",
-                "Advantage": test_advantage,
-                "Better": "Buying" if test_advantage > 0 else "Renting"
-            })
-        
-        sensitivity_df = pd.DataFrame(appreciation_sensitivity)
-        
-        # Plot sensitivity to appreciation
-        fig = px.bar(
-            sensitivity_df,
-            x="Rate",
-            y="Advantage",
-            color="Better",
-            title=f"Effect of Property Appreciation Rate",
-            color_discrete_map={"Buying": "green", "Renting": "red"},
-            labels={"Advantage": f"Buying Advantage (AED) after {compare_years} years", "Rate": "Property Appreciation Rate"}
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Sensitivity to rent growth
-        rent_sensitivity = []
-        test_rates = [max(1.0, rent_growth - 3), rent_growth, rent_growth + 3]
-        
-        for test_rate in test_rates:
-            # Recalculate rent total
-            test_rent_total = 0
-            test_current_rent = monthly_rent
-            
-            for year in range(1, compare_years + 1):
-                test_rent_total += test_current_rent * 12
-                test_current_rent *= (1 + test_rate / 100)
-                
-            test_advantage = net_worth_buying + test_rent_total
-            
-            rent_sensitivity.append({
-                "Rate": f"{test_rate:.1f}%",
-                "Advantage": test_advantage,
-                "Better": "Buying" if test_advantage > 0 else "Renting"
-            })
-        
-        rent_sensitivity_df = pd.DataFrame(rent_sensitivity)
-        
-        # Plot sensitivity to rent growth
-        fig = px.bar(
-            rent_sensitivity_df,
-            x="Rate",
-            y="Advantage",
-            color="Better",
-            title=f"Effect of Annual Rent Increase Rate",
-            color_discrete_map={"Buying": "green", "Renting": "red"},
-            labels={"Advantage": f"Buying Advantage (AED) after {compare_years} years", "Rate": "Rent Growth Rate"}
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Key factors
+    st.subheader("📏 Key Factors")
     st.markdown("""
-    ### 🔑 Key Factors That Could Change This Analysis
-    
+    ### 
     1. **Higher property appreciation** makes buying more attractive
     2. **Higher rent increases** favor buying more strongly
     3. **Longer time horizon** generally benefits buying (as mortgage gets paid off)
