@@ -12,6 +12,7 @@ DEFAULTS = {
     "fixed_years": 3,
     "fixed_rate": 3.99,
     "eibor_rate": 3.5,
+    "bank_margin": 1.5,
     
     # Fees
     "trustee_fee": 4200,
@@ -20,7 +21,7 @@ DEFAULTS = {
     "snagging_fee": 1000,
     "home_insurance_pct": 0.2,
     "life_insurance_pct": 0.5,
-    "arrangement_fee_pct": 1.0,
+    "processing_fee_pct": 1.0,
     
     # Rent comparison
     "monthly_rent": 8000,
