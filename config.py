@@ -26,6 +26,6 @@ DEFAULTS = {
     # Rent comparison
     "monthly_rent": 8000,
     "rent_growth": 5.0,
-    "compare_years": 20,
+    "compare_years": 25,
     "appreciation_rate": 3.0
 }
