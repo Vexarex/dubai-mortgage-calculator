@@ -15,7 +15,7 @@ def main():
     tabs = st.tabs([
         "📊 Mortgage Calculator",
         "🏡 Buy vs Rent Comparison",
-        "⭐ Asset" 
+        # "⭐ Asset" 
     ])
 
     with tabs[0]:
@@ -24,8 +24,8 @@ def main():
     with tabs[1]:
         show_buy_vs_rent()
 
-    with tabs[2]: 
-        show_google_reviews()
+    # with tabs[2]: 
+    #     show_google_reviews()
 
 if __name__ == "__main__":
     main()
