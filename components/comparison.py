@@ -26,8 +26,8 @@ def show_buy_vs_rent():
     home_insurance_pct = st.session_state.get('home_insurance_pct', DEFAULTS["home_insurance_pct"])
     
     # Check for DLD and agent fee parameters from session state
-    dld_fee_pct = st.session_state.get('dld_fee_pct', DEFAULTS.get("dld_fee_pct", 4.0))
-    agent_fee_pct = st.session_state.get('agent_fee_pct', DEFAULTS.get("agent_fee_pct", 2.0))
+    dld_fee_pct = st.session_state.get('dld_fee_pct', DEFAULTS["dld_fee_pct"])
+    agent_fee_pct = st.session_state.get('agent_fee_pct', DEFAULTS["agent_fee_pct"])
     processing_fee_pct = st.session_state.get('processing_fee_pct', DEFAULTS["processing_fee_pct"])
     trustee_fee = st.session_state.get('trustee_fee', DEFAULTS["trustee_fee"])
     valuation_fee = st.session_state.get('valuation_fee', DEFAULTS["valuation_fee"])
@@ -130,27 +130,31 @@ def show_buy_vs_rent():
         
         # Mortgage payments
         if year <= mortgage_years:
-            # Calculate mortgage payments and principal reduction
+            # Determine the correct monthly payment for this period
             if year <= fixed_years:
-                annual_mortgage = monthly_fixed_payment * 12
-            else:
-                annual_mortgage = monthly_floating_payment * 12
-            
-            # Estimate principal reduction for this year
-            if year <= fixed_years:
+                period_monthly_payment = monthly_fixed_payment
                 monthly_rate = fixed_rate / 100 / 12
             else:
+                period_monthly_payment = monthly_floating_payment
                 monthly_rate = floating_rate / 100 / 12
-                
-            annual_interest = remaining_loan * monthly_rate * 12
-            annual_principal = annual_mortgage - annual_interest
-            
-            # Apply tax advantage if any
-            tax_savings = annual_interest * (tax_advantage / 100)
+
+            # Compute true annual interest + principal by simulating 12 monthly steps.
+            # This avoids the bug where using beginning-of-year balance * 12 overstates interest.
+            annual_mortgage = 0
+            annual_interest_paid = 0
+            for _ in range(12):
+                if remaining_loan <= 0:
+                    break
+                month_interest = remaining_loan * monthly_rate
+                month_principal = min(period_monthly_payment - month_interest, remaining_loan)
+                annual_interest_paid += month_interest
+                annual_mortgage += month_interest + month_principal
+                remaining_loan -= month_principal
+
+            # Apply tax advantage if any (UAE has none, but field exists for completeness)
+            tax_savings = annual_interest_paid * (tax_advantage / 100)
             annual_mortgage -= tax_savings
-            
-            remaining_loan = max(0, remaining_loan - annual_principal)
-            
+
             # Add mortgage payment to annual cost
             annual_buy_cost += annual_mortgage
             cumulative_mortgage_payment += annual_mortgage
@@ -171,14 +175,11 @@ def show_buy_vs_rent():
             annual_life_insurance = (life_insurance_pct / 100) * remaining_loan
             annual_buy_cost += annual_life_insurance
             cumulative_insurance += annual_life_insurance
-            
-        # Update cumulative buy cost (including upfront costs for total costs over time)
-        total_annual_cost = annual_buy_cost
-        if year == 1:
-            total_annual_cost += upfront_cost
-            
-        buy_costs_over_time.append((year, total_annual_cost if year == 1 else 
-                                   buy_costs_over_time[-1][1] + annual_buy_cost))
+
+        # Cumulate: year 1 also carries all upfront costs
+        prev_cumulative = buy_costs_over_time[-1][1] if buy_costs_over_time else 0
+        year_total = annual_buy_cost + (upfront_cost if year == 1 else 0)
+        buy_costs_over_time.append((year, prev_cumulative + year_total))
         
         # Calculate equity (property value minus remaining loan)
         equity = property_value - remaining_loan
@@ -238,7 +239,10 @@ def show_buy_vs_rent():
     final_buy_cost = buy_cost_df.iloc[-1]["Cumulative Buy Cost"]
     final_property_value = buy_equity_df.iloc[-1]["Property Equity"]
     final_net_position = net_position_df.iloc[-1]["Net Position"]
-    true_financial_outcome = final_property_value - total_buying_cost 
+
+    # Single consistent measure: what you own minus everything you spent
+    # (upfront_cost is already baked into final_buy_cost via the loop)
+    true_financial_outcome = final_property_value - final_buy_cost
 
     # ----------------------------------------
     # 📊 High-Level Summary: Rent vs Buy
@@ -247,19 +251,17 @@ def show_buy_vs_rent():
 
     col1, col2 = st.columns(2)
 
-    # Determine if buying is financially better
-    buy_better = final_net_position > -final_rent_cost
+    # Buying is better when its net outcome beats the renter's net outcome.
+    # Renter's net outcome is simply -final_rent_cost (they spent money, own nothing).
+    buy_better = true_financial_outcome > -final_rent_cost
 
     # 🏠 Buying Summary
     with col1:
         st.markdown("### 🏠 Buying a Home")
-        st.markdown(f"**Total Spent (including fees):** AED {total_buying_cost:,.2f}")
+        st.markdown(f"**Total Spent (including fees):** AED {final_buy_cost:,.2f}")
         st.markdown(f"**Estimated Property Value:** AED {final_property_value:,.2f}")
         
-        # Calculate the actual financial gain/loss
-        financial_outcome = final_net_position
-        
-        if financial_outcome > 0:
+        if true_financial_outcome > 0:
             st.markdown(f"**Final Financial Outcome:** 🟢 **AED {true_financial_outcome:,.2f} gain**")
         else:
             st.markdown(f"**Final Financial Outcome:** 🔴 AED {abs(true_financial_outcome):,.2f} loss")
@@ -271,9 +273,8 @@ def show_buy_vs_rent():
         st.markdown(f"**Assets Owned:** AED 0.00")
         
         if not buy_better:
-    # If renting is financially better overall
-            rent_advantage = abs(final_net_position) - final_rent_cost
-            st.markdown(f"**Final Financial Outcome:** 🟢 **AED {rent_advantage:,.2f} saved compared to buying**")
+            # Renting is financially better overall
+            st.markdown(f"**Final Financial Outcome:** 🟢 **AED {final_rent_cost:,.2f} spent, but better than buying**")
         else:
             # Renting always results in money spent with no asset
             st.markdown(f"**Final Financial Outcome:** 🔴 AED {final_rent_cost:,.2f} spent with no asset acquired")
@@ -281,7 +282,8 @@ def show_buy_vs_rent():
     # Show the financial advantage with highlighting
     st.markdown("---")
     if buy_better:
-        advantage_amount = final_rent_cost - abs(true_financial_outcome)
+        # How much better off buying is: buyer's net outcome minus renter's net outcome
+        advantage_amount = true_financial_outcome - (-final_rent_cost)
         st.success(f"### 💰 You'll be **AED {advantage_amount:,.2f}** better off by BUYING after {compare_years} years")
         
         if break_even_year and break_even_year <= compare_years:
@@ -289,8 +291,9 @@ def show_buy_vs_rent():
         else:
             st.warning(f"💡 You'll break even after the comparison period (not within {compare_years} years)")
     else:
-        advantage_amount = final_rent_cost - abs(true_financial_outcome)
-        st.error(f"### 💰 You'll be **AED {advantage_amount:,.2f}** better off by RENTING after {compare_years} years")
+        # How much better off renting is: renter's net outcome minus buyer's net outcome
+        advantage_amount = true_financial_outcome - (-final_rent_cost)
+        st.error(f"### 💰 You'll be **AED {abs(advantage_amount):,.2f}** better off by RENTING after {compare_years} years")
         
         if break_even_year:
             st.info(f"💡 Buying becomes financially better after year {break_even_year}")
