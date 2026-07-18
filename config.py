@@ -15,6 +15,8 @@ DEFAULTS = {
     "bank_margin": 1.5,
     
     # Fees
+    "dld_fee_pct": 4.0,      # Dubai Land Department transfer fee
+    "agent_fee_pct": 2.0,    # Broker/agent commission
     "trustee_fee": 4200,
     "valuation_fee": 3000,
     "dewa_fee": 2000,
@@ -26,6 +28,6 @@ DEFAULTS = {
     # Rent comparison
     "monthly_rent": 8000,
     "rent_growth": 5.0,
-    "compare_years": 25,
+    "compare_years": 20,
     "appreciation_rate": 3.0
 }
