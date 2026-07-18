@@ -52,14 +52,24 @@ def calculate_mortgage_costs(property_price, down_payment_pct, loan_amount,
     """Calculate all mortgage related costs"""
 
     monthly_fixed = monthly_payment(loan_amount, fixed_rate, mortgage_years)
-    monthly_floating = monthly_payment(loan_amount, floating_rate, mortgage_years - fixed_years)
 
     annual_service_charge = built_up_area * service_charge_rate
     total_service_charge = annual_service_charge * mortgage_years
 
-    # Simulate amortization to get monthly balances for decreasing life insurance
+    # Simulate amortization to get monthly balances for decreasing life insurance.
+    # This also gives us the correct remaining balance at the end of the fixed period,
+    # which is the right principal to use when quoting the floating payment.
     _, monthly_amortization = generate_amortization(
         loan_amount, fixed_years, mortgage_years, fixed_rate, floating_rate
+    )
+
+    # Balance remaining exactly when the floating period starts
+    fixed_end_balance = monthly_amortization[
+        monthly_amortization["Year"] == fixed_years
+    ]["Remaining Balance"].iloc[-1] if fixed_years > 0 else loan_amount
+
+    monthly_floating = monthly_payment(
+        fixed_end_balance, floating_rate, mortgage_years - fixed_years
     )
 
     # Calculate monthly insurance costs (decreasing life insurance + static home insurance)
