@@ -75,9 +75,10 @@ def show_mortgage_calculator():
             min_value=0.0,
             key="bank_margin"
         )
+        st.caption("📌 Check the latest EIBOR rate at [UAE Central Bank](https://centralbank.ae/en/forex-eibor/eibor-rates/) before entering.")
         eibor_rate = st.number_input(
-            "Current EIBOR (%)", 
-            value=DEFAULTS["eibor_rate"], 
+            "Current EIBOR (%)",
+            value=DEFAULTS["eibor_rate"],
             step=0.01,
             min_value=0.0,
             key="eibor_rate"
@@ -87,14 +88,14 @@ def show_mortgage_calculator():
         st.subheader("🧾 Fees & Insurance")
         dld_fee_pct = st.number_input(
             "Dubai Land Department Fee (%)",
-            value=DEFAULTS.get("dld_fee_pct", 4.0),
+            value=DEFAULTS["dld_fee_pct"],
             step=0.1,
             min_value=0.0,
             key="dld_fee_pct"
         )
         agent_fee_pct = st.number_input(
             "Agent Fee (%)",
-            value=DEFAULTS.get("agent_fee_pct", 2.0),
+            value=DEFAULTS["agent_fee_pct"],
             step=0.1,
             min_value=0.0,
             key="agent_fee_pct"
@@ -167,7 +168,7 @@ def show_mortgage_calculator():
         ("Down Payment", f"AED {down_payment:,.2f}", f"Initial {down_payment_pct}% payment"),
         ("Upfront Costs", f"AED {upfront_cost:,.2f}", "Down Payment + Fees + Registration costs"),
         ("Monthly Payment (Fixed)", f"AED {mortgage_costs['monthly_fixed']:,.2f}", f"Monthly during fixed rate period ({fixed_years} years)"),
-        ("Monthly Payment (Floating)", f"AED {mortgage_costs['monthly_floating']:,.2f}", f"Estimated floating payment (EIBOR {eibor_rate}% + {bank_margin}%)"),
+        ("Monthly Payment (Floating)", f"AED {mortgage_costs['monthly_floating']:,.2f}", f"Estimated floating payment on remaining balance after fixed period (EIBOR {eibor_rate}% + {bank_margin}%)"),
         ("Monthly Service Charge", f"AED {mortgage_costs['annual_service_charge'] / 12:,.2f}", "Service charge paid monthly"),
         # ("Total Principal", f"AED {loan_amount:,.2f}", "Loan amount to be repaid"),
         ("Total Interest", f"AED {mortgage_costs['total_interest']:,.2f}", "Full interest paid over life of loan"),
